@@ -11,41 +11,75 @@ class Twitter:
         access_token = oauth2.Token(key=ACCESS_KEY, secret=ACCESS_SECRET)
         self.client = oauth2.Client(consumer, access_token)
 
-    def search(self, keywords, filter_by="links", limit=5):
-        query_string = "+".join('"'+k+"'" for k in keywords) + "+filter:" + filter_by
+    def keyword_search(self, keywords, limit=-1):
+        query_string = " OR ".join(keywords) + "&result_type=recent&count=100"
         search_string = "https://api.twitter.com/1.1/search/tweets.json?q=%s" % query_string
         response, data = self.client.request(search_string)
         data_dict = json.loads(data)
 
-        results = {} 
+        results = {}
 
-        if filter_by == 'links':
+        if data_dict.get('statuses') != None:
             for status in data_dict['statuses']:
-                try:
-                    score = int(status['retweet_count']) + int(status['favorite_count'])
-                    urls = status['entities']['urls']
-                    for url in urls:
-                        link = url['expanded_url']
-                        results[link] = max(results.get(link, 0), score)
-                except:
-                    pass
+                mentions = status['entities'].get('user_mentions', [])
+                if mentions:
+                    text = status['text']
+                    for mention in mentions:
+                        target = mention['screen_name']
 
-        elif filter_by == 'images':
+                        bad_name = False
+                        for keyword in keywords:
+                            if keyword in target:
+                                bad_name = True
+                        if bad_name:
+                            continue
+                                
+                        mentions = self.mentioned_search(keywords, target) 
+                        targets = self.targeted_search(keywords, target)
+                        results[target] = list(set(results.get(target, []) + mentions + targets))
+        else:
+            print "error on keyword search for", query_string, data_dict
+
+        return sorted(results.items(), key=lambda x: len(x[1]), reverse=True)[:limit]
+
+    def mentioned_search(self, keywords, screen_name):
+        query_string = " OR ".join(keywords) + " %40" + screen_name + "&result_type=recent&count=100"
+        search_string = "https://api.twitter.com/1.1/search/tweets.json?q=%s" % query_string
+        response, data = self.client.request(search_string)
+        data_dict = json.loads(data)
+
+        results = [] 
+        if data_dict.get('statuses') != None:
             for status in data_dict['statuses']:
-                try:
-                    score = int(status['retweet_count']) + int(status['favorite_count'])
-                    link = status['entities']['media'][0]['media_url']
-                    results[link] = max(results.get(link, 0), score)
-                except:
-                    pass
+                results.append(status['text'])
+        else:
+            print "error on mentioned search for", query_string, data_dict
+        return results
 
-        return [x[0] for x in sorted(results.items(), key=lambda x: x[1], reverse=True)][:limit]
+    def targeted_search(self, keywords, screen_name):
+        query_string = " OR ".join(keywords) + " to:" + screen_name + "&result_type=recent&count=100"
+        search_string = "https://api.twitter.com/1.1/search/tweets.json?q=%s" % query_string
+        response, data = self.client.request(search_string)
+        data_dict = json.loads(data)
+
+        results = [] 
+        if data_dict.get('statuses') != None:
+            for status in data_dict['statuses']:
+                results.append(status['text'])
+        else:
+            print "error on targeted search for", query_string, data_dict
+        return results
 
 
 def main():
     t = Twitter()
-    results = t.search(['privacy', 'law', 'google'], filter_by="links")
-    print results
+    results = t.keyword_search(["faggot", "fag"])
+    for result in results:
+        print "===" * 20
+        print result[0]
+        print "XX"
+        print result[1]
+        print "===" * 20
 
 
 if __name__ == "__main__":
